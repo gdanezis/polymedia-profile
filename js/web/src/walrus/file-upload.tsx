@@ -174,79 +174,225 @@ export default function FileUpload({
 				needsWal
 			});
 
-			if (!needsSui && !needsWal) {
-				setFundAndDoAllStep("Local address already has sufficient funds!");
-				setTimeout(() => {
-					setFundAndDoAllStep("");
-					setIsFundingAndDoingAll(false);
-				}, 2000);
-				return;
-			}
+			// Step 1: Fund the local address if needed
+			if (needsSui || needsWal) {
+				setFundAndDoAllStep("Funding local address...");
+				
+				const fundingTx = new Transaction();
+				let hasFundingOperations = false;
+				
+				// Transfer SUI if needed
+				if (needsSui) {
+					const [suiCoin] = fundingTx.splitCoins(fundingTx.gas, [requiredSui]);
+					fundingTx.transferObjects([suiCoin], localAddress);
+					hasFundingOperations = true;
+					console.log("Adding SUI transfer to transaction");
+				}
 
-			// Step 1: Fund the local address (only if needed)
-			setFundAndDoAllStep("Funding local address...");
-			
-			const fundingTx = new Transaction();
-			let hasFundingOperations = false;
-			
-			// Transfer SUI if needed
-			if (needsSui) {
-				const [suiCoin] = fundingTx.splitCoins(fundingTx.gas, [requiredSui]);
-				fundingTx.transferObjects([suiCoin], localAddress);
-				hasFundingOperations = true;
-				console.log("Adding SUI transfer to transaction");
-			}
+				// Transfer WAL if needed and available
+				if (needsWal) {
+					try {
+						const userWalCoins = await suiClient.getCoins({
+							owner: currentAccount.address,
+							coinType: "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL"
+						});
 
-			// Transfer WAL if needed and available
-			if (needsWal) {
-				try {
-					const userWalCoins = await suiClient.getCoins({
-						owner: currentAccount.address,
-						coinType: "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL"
-					});
-
-					if (userWalCoins.data.length > 0) {
-						// Use the first WAL coin found
-						const walCoin = userWalCoins.data[0];
-						if (Number(walCoin.balance) >= requiredWal) {
-							const [walTransferCoin] = fundingTx.splitCoins(fundingTx.object(walCoin.coinObjectId), [requiredWal]);
-							fundingTx.transferObjects([walTransferCoin], localAddress);
-							hasFundingOperations = true;
-							console.log("Adding WAL transfer to transaction");
+						if (userWalCoins.data.length > 0) {
+							// Use the first WAL coin found
+							const walCoin = userWalCoins.data[0];
+							if (Number(walCoin.balance) >= requiredWal) {
+								const [walTransferCoin] = fundingTx.splitCoins(fundingTx.object(walCoin.coinObjectId), [requiredWal]);
+								fundingTx.transferObjects([walTransferCoin], localAddress);
+								hasFundingOperations = true;
+								console.log("Adding WAL transfer to transaction");
+							}
 						}
+					} catch (walError) {
+						console.warn("Failed to transfer WAL coin:", walError);
+						// Continue without WAL - SUI should be enough for the operations
 					}
-				} catch (walError) {
-					console.warn("Failed to transfer WAL coin:", walError);
-					// Continue without WAL - SUI should be enough for the operations
+				}
+
+				if (hasFundingOperations) {
+					// Execute funding transaction with wallet
+					const result = await signAndExecuteTransaction({
+						transaction: fundingTx,
+					});
+					console.log("Funding transaction completed:", result);
+					
+					// Wait for funding transaction to settle before using the funded coins
+					console.log("Waiting for funding transaction to settle...");
+					await new Promise(resolve => setTimeout(resolve, 2000));
 				}
 			}
 
-			if (!hasFundingOperations) {
-				setFundAndDoAllStep("No funding operations needed!");
-				setTimeout(() => {
-					setFundAndDoAllStep("");
-					setIsFundingAndDoingAll(false);
-				}, 2000);
-				return;
+			// Step 2: Ensure file is encoded (if not already)
+			setFundAndDoAllStep("Preparing file for upload...");
+			if (state.status === "idle") {
+				await encodeFile(file);
 			}
 
-			// Execute funding transaction with wallet
-			const result = await signAndExecuteTransaction({
-				transaction: fundingTx,
+			// Wait for encoding to complete
+			if (state.status !== "can-register") {
+				throw new Error("File encoding failed or not ready for registration");
+			}
+
+			// Step 3: Create local signing function
+			const localSignTx = async (tx: Transaction) => {
+				tx.setSender(localAddress);
+				const { bytes, signature } = await keypair.signTransaction(await tx.build({ client: suiClient }));
+				return suiClient.executeTransactionBlock({
+					transactionBlock: bytes,
+					signature,
+					options: {
+						showEffects: true,
+						showEvents: true,
+						showObjectChanges: true,
+					},
+				});
+			};
+
+			// Step 4: Register blob using local keypair
+			setFundAndDoAllStep("Registering blob with local keypair...");
+			
+			if (state.status !== "can-register") {
+				throw new Error("Not ready for registration");
+			}
+
+			const registerTx = state.writeFileFlow.register({
+				epochs,
+				deletable: DELETABLE,
+				owner: localAddress,
 			});
 
-			console.log("Funding transaction completed:", result);
-			setFundAndDoAllStep("Funding completed successfully!");
+			const registerResult = await localSignTx(registerTx);
 			
-			// For now, just stop here and show success
+			if (registerResult.effects?.status.status !== "success") {
+				throw new Error(`Register failed: ${registerResult.effects?.status.error}`);
+			}
+
+			console.log("Registration completed:", registerResult.digest);
+
+			// Step 5: Upload to Walrus
+			setFundAndDoAllStep("Uploading blob to Walrus...");
+			await state.writeFileFlow.upload({
+				digest: registerResult.digest,
+			});
+
+			console.log("Upload to Walrus completed");
+
+			// Step 6: Certify blob using local keypair
+			setFundAndDoAllStep("Certifying blob with local keypair...");
+			
+			const certifyTx = state.writeFileFlow.certify();
+			const certifyResult = await localSignTx(certifyTx);
+			
+			if (certifyResult.effects?.status.status !== "success") {
+				throw new Error(`Certify failed: ${certifyResult.effects?.status.error}`);
+			}
+
+			console.log("Certification completed:", certifyResult.digest);
+
+			// Step 7: Transfer remaining coins back to user
+			setFundAndDoAllStep("Transferring remaining coins back...");
+			
+			// Wait a moment for the blockchain state to settle after the previous transaction
+			await new Promise(resolve => setTimeout(resolve, 1000));
+			
+			// Get ALL coins on the local address (not just SUI and WAL)
+			const allCoins = await suiClient.getAllCoins({
+				owner: localAddress,
+			});
+
+			console.log("All coins on local address:", allCoins.data.map(c => ({ 
+				id: c.coinObjectId, 
+				type: c.coinType, 
+				version: c.version, 
+				balance: c.balance 
+			})));
+
+			// Transfer back ALL coins
+			if (allCoins.data.length > 0) {
+				const returnTx = new Transaction();
+				let hasReturnOperations = false;
+
+				// Find SUI coins and use the largest as gas
+				const suiCoins = allCoins.data.filter(c => c.coinType === "0x2::sui::SUI");
+				const nonSuiCoins = allCoins.data.filter(c => c.coinType !== "0x2::sui::SUI");
+
+				if (suiCoins.length > 0) {
+					// Sort SUI coins by balance (largest first) to use the largest as gas
+					const sortedSuiCoins = [...suiCoins].sort((a, b) => Number(b.balance) - Number(a.balance));
+					const gasCoin = sortedSuiCoins[0];
+					const gasBalance = Number(gasCoin.balance);
+					
+					console.log("Using gas coin:", { id: gasCoin.coinObjectId, version: gasCoin.version, balance: gasBalance });
+					
+					// Set the largest SUI coin as gas payment
+					returnTx.setGasPayment([{
+						objectId: gasCoin.coinObjectId,
+						version: gasCoin.version,
+						digest: gasCoin.digest
+					}]);
+
+					// Return all other SUI coins (if any) - don't try to split the gas coin
+					for (let i = 1; i < sortedSuiCoins.length; i++) {
+						const coin = sortedSuiCoins[i];
+						returnTx.transferObjects([returnTx.object(coin.coinObjectId)], currentAccount.address);
+						hasReturnOperations = true;
+						console.log("Adding other SUI coin return:", { id: coin.coinObjectId, type: coin.coinType, balance: coin.balance });
+					}
+
+					// Transfer the gas coin itself as a whole object (gas will be deducted automatically)
+					if (sortedSuiCoins.length === 1) {
+						// If this is the only SUI coin, transfer it as-is (gas will be deducted)
+						returnTx.transferObjects([returnTx.gas], currentAccount.address);
+						hasReturnOperations = true;
+						console.log("Adding gas coin return (whole object):", gasBalance);
+					}
+				}
+
+				// Return ALL non-SUI coins (WAL, and any other coin types)
+				for (const coin of nonSuiCoins) {
+					returnTx.transferObjects([returnTx.object(coin.coinObjectId)], currentAccount.address);
+					hasReturnOperations = true;
+					console.log("Adding coin return:", { id: coin.coinObjectId, type: coin.coinType, balance: coin.balance });
+				}
+
+				if (hasReturnOperations) {
+					console.log("Executing return transaction...");
+					const returnResult = await localSignTx(returnTx);
+					console.log("Return transaction completed:", returnResult.digest);
+				} else {
+					console.log("No return operations needed");
+				}
+			} else {
+				console.log("No coins found on local address to return");
+			}
+
+			// Step 8: Get final result and complete
+			const files = await state.writeFileFlow.listFiles();
+			
+			// Transform the result to match the expected UploadResult interface
+			onUploadComplete({
+				patchId: files[0].id,
+				blobId: files[0].blobId,
+				suiObjectId: files[0].blobObject.id.id,
+				endEpoch: files[0].blobObject.storage.end_epoch,
+			});
+			
+			setFundAndDoAllStep("Upload completed successfully!");
+			
+			// Clean up and show success
 			setTimeout(() => {
+				resetUploadProcess();
 				setFundAndDoAllStep("");
 				setIsFundingAndDoingAll(false);
 			}, 2000);
 
 		} catch (error) {
-			console.error("Funding failed:", error);
-			setError(error instanceof Error ? error.message : "Funding failed");
+			console.error("Fund and do all failed:", error);
+			setError(error instanceof Error ? error.message : "Fund and do all failed");
 			setIsFundingAndDoingAll(false);
 			setFundAndDoAllStep("");
 		}
@@ -363,7 +509,7 @@ export default function FileUpload({
 							<span>{fundAndDoAllStep}</span>
 						</div>
 					) : (
-						<span>💰 Fund local address</span>
+						<span>💰 Fund and do all!</span>
 					)}
 				</button>
 
