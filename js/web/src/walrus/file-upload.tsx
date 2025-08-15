@@ -1,4 +1,5 @@
-import { useCurrentAccount } from "@mysten/dapp-kit";
+import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
+import { Transaction } from "@mysten/sui/transactions";
 import { useEffect, useRef, useState } from "react";
 import { useAppContext } from "../app/context";
 import { Spinner } from "../comp/spinner";
@@ -27,13 +28,19 @@ export default function FileUpload({
 	onUploadProgressChange,
 }: FileUploadProps) {
 	const currentAccount = useCurrentAccount();
-	const { network } = useAppContext();
+	const suiClient = useSuiClient();
+	const { mutateAsync: signAndExecuteTransaction } = useSignAndExecuteTransaction();
+	const { network, keypair } = useAppContext();
 
 	// UI state
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [file, setFile] = useState<File | null>(null);
 	const [epochs, setEpochs] = useState(1);
 	const [error, setError] = useState<string | null>(null);
+
+	// Fund and do all state
+	const [isFundingAndDoingAll, setIsFundingAndDoingAll] = useState(false);
+	const [fundAndDoAllStep, setFundAndDoAllStep] = useState("");
 
 	// Use the new Walrus upload hook
 	const {
@@ -121,6 +128,130 @@ export default function FileUpload({
 		resetUploadProcess();
 	};
 
+	const handleFundAndDoAll = async () => {
+		console.log("handleFundAndDoAll called!");
+		console.log("currentAccount:", currentAccount);
+		console.log("file:", file);
+		console.log("isFundingAndDoingAll:", isFundingAndDoingAll);
+		
+		if (!currentAccount || !file) {
+			console.log("Early return: missing currentAccount or file");
+			return;
+		}
+
+		setIsFundingAndDoingAll(true);
+		try {
+			const localAddress = keypair.getPublicKey().toSuiAddress();
+			console.log("Local address:", localAddress);
+
+			// Check current balances of local address
+			setFundAndDoAllStep("Checking local address balances...");
+			
+			const [suiCoins, walCoins] = await Promise.all([
+				suiClient.getCoins({
+					owner: localAddress,
+					coinType: "0x2::sui::SUI"
+				}),
+				suiClient.getCoins({
+					owner: localAddress,
+					coinType: "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL"
+				}).catch(() => ({ data: [] })) // Handle case where address has no WAL coins
+			]);
+
+			const currentSuiBalance = suiCoins.data.reduce((total, coin) => total + Number(coin.balance), 0);
+			const currentWalBalance = walCoins.data.reduce((total, coin) => total + Number(coin.balance), 0);
+			
+			const requiredSui = 100_000_000; // 0.1 SUI in MIST
+			const requiredWal = 1_000_000_000; // 1 WAL
+			
+			const needsSui = currentSuiBalance < requiredSui;
+			const needsWal = currentWalBalance < requiredWal;
+			
+			console.log("Balance check:", {
+				currentSuiBalance,
+				currentWalBalance,
+				needsSui,
+				needsWal
+			});
+
+			if (!needsSui && !needsWal) {
+				setFundAndDoAllStep("Local address already has sufficient funds!");
+				setTimeout(() => {
+					setFundAndDoAllStep("");
+					setIsFundingAndDoingAll(false);
+				}, 2000);
+				return;
+			}
+
+			// Step 1: Fund the local address (only if needed)
+			setFundAndDoAllStep("Funding local address...");
+			
+			const fundingTx = new Transaction();
+			let hasFundingOperations = false;
+			
+			// Transfer SUI if needed
+			if (needsSui) {
+				const [suiCoin] = fundingTx.splitCoins(fundingTx.gas, [requiredSui]);
+				fundingTx.transferObjects([suiCoin], localAddress);
+				hasFundingOperations = true;
+				console.log("Adding SUI transfer to transaction");
+			}
+
+			// Transfer WAL if needed and available
+			if (needsWal) {
+				try {
+					const userWalCoins = await suiClient.getCoins({
+						owner: currentAccount.address,
+						coinType: "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL"
+					});
+
+					if (userWalCoins.data.length > 0) {
+						// Use the first WAL coin found
+						const walCoin = userWalCoins.data[0];
+						if (Number(walCoin.balance) >= requiredWal) {
+							const [walTransferCoin] = fundingTx.splitCoins(fundingTx.object(walCoin.coinObjectId), [requiredWal]);
+							fundingTx.transferObjects([walTransferCoin], localAddress);
+							hasFundingOperations = true;
+							console.log("Adding WAL transfer to transaction");
+						}
+					}
+				} catch (walError) {
+					console.warn("Failed to transfer WAL coin:", walError);
+					// Continue without WAL - SUI should be enough for the operations
+				}
+			}
+
+			if (!hasFundingOperations) {
+				setFundAndDoAllStep("No funding operations needed!");
+				setTimeout(() => {
+					setFundAndDoAllStep("");
+					setIsFundingAndDoingAll(false);
+				}, 2000);
+				return;
+			}
+
+			// Execute funding transaction with wallet
+			const result = await signAndExecuteTransaction({
+				transaction: fundingTx,
+			});
+
+			console.log("Funding transaction completed:", result);
+			setFundAndDoAllStep("Funding completed successfully!");
+			
+			// For now, just stop here and show success
+			setTimeout(() => {
+				setFundAndDoAllStep("");
+				setIsFundingAndDoingAll(false);
+			}, 2000);
+
+		} catch (error) {
+			console.error("Funding failed:", error);
+			setError(error instanceof Error ? error.message : "Funding failed");
+			setIsFundingAndDoingAll(false);
+			setFundAndDoAllStep("");
+		}
+	};
+
 	const resetUploadProcess = () => {
 		setFile(null);
 		setError(null);
@@ -141,6 +272,16 @@ export default function FileUpload({
 		uploadStatus,
 	);
 	const hasRelayed = ["can-certify", "certifying"].includes(uploadStatus);
+
+	// Debug the button state
+	const fundButtonDisabled = !file || isEncoding || !currentAccount || isFundingAndDoingAll;
+	console.log("Fund button debug:", {
+		file: !!file,
+		isEncoding,
+		currentAccount: !!currentAccount,
+		isFundingAndDoingAll,
+		disabled: fundButtonDisabled
+	});
 
 	return (
 		<div className="walrus-form">
@@ -209,6 +350,22 @@ export default function FileUpload({
 			{/* Upload Buttons */}
 			<div className="btn-group">
 				<h3>Upload Steps</h3>
+
+				{/* Fund and Do All Button */}
+				<button
+					className="fund-and-do-all-btn"
+					onClick={handleFundAndDoAll}
+					disabled={fundButtonDisabled}
+				>
+					{isFundingAndDoingAll ? (
+						<div className="button-loading">
+							<Spinner />
+							<span>{fundAndDoAllStep}</span>
+						</div>
+					) : (
+						<span>💰 Fund local address</span>
+					)}
+				</button>
 
 				{/* Step 1: Register Blob */}
 				<button

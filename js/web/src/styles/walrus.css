@@ -16,6 +16,27 @@
 			font-size: 0.9em;
 			text-transform: uppercase;
 		}
+		
+		.fund-and-do-all-btn {
+			background: linear-gradient(135deg, #ff6b6b, #ffa500);
+			color: white;
+			border: none;
+			font-weight: bold;
+			text-transform: none;
+			border-radius: 0.5em;
+			transition: all 0.3s ease;
+			
+			&:hover:not(:disabled) {
+				background: linear-gradient(135deg, #ff5252, #ff9800);
+				transform: translateY(-2px);
+				box-shadow: 0 4px 8px rgba(255, 107, 107, 0.3);
+			}
+			
+			&:disabled {
+				background: #ccc;
+				cursor: not-allowed;
+			}
+		}
 	}
 
 	input {
