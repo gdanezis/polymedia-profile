@@ -26,6 +26,9 @@ importers:
       '@mysten/sui':
         specifier: ^1.37.0
         version: 1.37.0(typescript@5.8.3)
+      '@polymedia/profile-sdk':
+        specifier: ^3.0.0
+        version: 3.0.0(@mysten/bcs@1.6.4)(@mysten/sui@1.37.0(typescript@5.8.3))
       '@polymedia/suitcase-core':
         specifier: ^0.0.62
         version: 0.0.62(@mysten/sui@1.37.0(typescript@5.8.3))
@@ -710,6 +713,17 @@ packages:
   '@noble/hashes@1.8.0':
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
     engines: {node: ^14.21.3 || >=16}
+
+  '@polymedia/profile-sdk@3.0.0':
+    resolution: {integrity: sha512-qjawH01vLHiCyabIIvev0WdezqaJIs4yzRYrdmomsED7VAfiRQyhQ8shUyUi1OPL5DlIzVq84MPER9f3H0lYnQ==}
+    peerDependencies:
+      '@mysten/bcs': ^1.6.4
+      '@mysten/sui': ^1.36.0
+
+  '@polymedia/suitcase-core@0.0.60':
+    resolution: {integrity: sha512-ipyQlEfkwAkJMg/Mj9W41LnZP9SXRkyHkPm3bC3bSqLoAwXK+ld0lpsLmThHYigcyrKz+/4ZHVy6DWZGTJPWlQ==}
+    peerDependencies:
+      '@mysten/sui': ^1.36.0
 
   '@polymedia/suitcase-core@0.0.62':
     resolution: {integrity: sha512-LL728vAnw1V170IAT9s6o77qAZK89nqkT/0PQvEpQnlyYwYshBRNUmaobzHkh1PdKgyibs3b990lexnVjuJdIg==}
@@ -2269,6 +2283,16 @@ snapshots:
       '@noble/hashes': 1.8.0
 
   '@noble/hashes@1.8.0': {}
+
+  '@polymedia/profile-sdk@3.0.0(@mysten/bcs@1.6.4)(@mysten/sui@1.37.0(typescript@5.8.3))':
+    dependencies:
+      '@mysten/bcs': 1.6.4
+      '@mysten/sui': 1.37.0(typescript@5.8.3)
+      '@polymedia/suitcase-core': 0.0.60(@mysten/sui@1.37.0(typescript@5.8.3))
+
+  '@polymedia/suitcase-core@0.0.60(@mysten/sui@1.37.0(typescript@5.8.3))':
+    dependencies:
+      '@mysten/sui': 1.37.0(typescript@5.8.3)
 
   '@polymedia/suitcase-core@0.0.62(@mysten/sui@1.37.0(typescript@5.8.3))':
     dependencies:

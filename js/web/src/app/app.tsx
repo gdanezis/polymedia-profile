@@ -9,6 +9,7 @@ import {
 } from "@mysten/dapp-kit";
 import "@mysten/dapp-kit/dist/index.css";
 import { getFullnodeUrl } from "@mysten/sui/client";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { type PolymediaProfile, ProfileClient } from "@polymedia/profile-sdk";
 import { loadNetwork, type Setter } from "@polymedia/suitcase-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -26,6 +27,7 @@ import "../styles/app.css";
 import { WalrusClient } from "@mysten/walrus";
 import { networkIds } from "./config";
 import { AppContext } from "./context";
+import { initializeKeypair } from "./keypair";
 import { NetworkRibbon } from "./NetworkRibbon";
 import { Nav } from "./nav";
 
@@ -83,6 +85,7 @@ export type AppContextType = {
 	profile: PolymediaProfile | null | undefined;
 	profileClient: ProfileClient;
 	walrusClient: WalrusClient;
+	keypair: Ed25519Keypair;
 	reloadProfile: () => Promise<void>;
 	openConnectModal: () => void;
 };
@@ -93,6 +96,11 @@ const App: React.FC<{
 }> = ({ network, setNetwork }) => {
 	const [profile, setProfile] = useState<PolymediaProfile | null | undefined>(undefined);
 	const [showConnectModal, setShowConnectModal] = useState(false);
+
+	// Initialize keypair from mnemonic stored in localStorage
+	const keypair = useMemo(() => {
+		return initializeKeypair();
+	}, []);
 
 	const suiClient = useSuiClient();
 	const currAcct = useCurrentAccount();
@@ -153,6 +161,7 @@ const App: React.FC<{
 		profile,
 		profileClient,
 		walrusClient,
+		keypair,
 		reloadProfile,
 		openConnectModal,
 	};
@@ -164,6 +173,18 @@ const App: React.FC<{
 				<Nav />
 				<Outlet /> {/* loads a page/*.tsx */}
 				<div id="filler-section"></div>
+				<div style={{
+					backgroundColor: '#f8f9fa',
+					padding: '12px 16px',
+					borderTop: '1px solid #dee2e6',
+					fontSize: '12px',
+					fontFamily: 'monospace',
+					color: '#6c757d',
+					textAlign: 'center',
+					marginTop: 'auto'
+				}}>
+					<strong>Keypair Address:</strong> {keypair.getPublicKey().toSuiAddress()}
+				</div>
 				<Toaster
 					position="bottom-right"
 					toastOptions={{

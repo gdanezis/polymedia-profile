@@ -44,6 +44,7 @@
 		}
 	},
 	"dependencies": {
+		"@polymedia/profile-sdk": "^3.0.0",
 		"@polymedia/suitcase-core": "^0.0.62"
 	}
 }
