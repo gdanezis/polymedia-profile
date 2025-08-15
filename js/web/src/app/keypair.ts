@@ -1,62 +1,65 @@
-import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { WebCryptoSigner } from "@mysten/signers/webcrypto";
+import { get, set } from "idb-keyval";
 
-/* Private Key and Keypair Management */
+/* WebCrypto Signer and Keypair Management */
 
-const PRIVATE_KEY_STORAGE_KEY = 'polymedia-profile-private-key';
+const KEYPAIR_STORAGE_KEY = 'polymedia-profile-webcrypto-keypair';
 
-const generatePrivateKey = (): string => {
-	// Generate a new Ed25519 keypair and extract its private key
-	const randomKeypair = new Ed25519Keypair();
-	return randomKeypair.getSecretKey();
+const generateKeypair = async (): Promise<WebCryptoSigner> => {
+	// Generate a new WebCrypto signer
+	const keypair = await WebCryptoSigner.generate();
+	return keypair;
 };
 
-const getPrivateKeyFromStorage = (): string | null => {
+const getKeypairFromStorage = async (): Promise<any | null> => {
 	try {
-		const secretKey = localStorage.getItem(PRIVATE_KEY_STORAGE_KEY);
-		// Validate that we have a valid private key string
-		if (secretKey && secretKey.length > 0) {
-			return secretKey;
+		const exportedKeypair = await get(KEYPAIR_STORAGE_KEY);
+		// Check if we have a valid exported keypair
+		if (exportedKeypair) {
+			return exportedKeypair;
 		}
 		return null;
 	} catch (error) {
-		console.warn('[getPrivateKeyFromStorage] Failed to read secret key from storage:', error);
+		console.warn('[getKeypairFromStorage] Failed to read keypair from IndexedDB:', error);
 		return null;
 	}
 };
 
-const savePrivateKeyToStorage = (secretKey: string): void => {
+const saveKeypairToStorage = async (keypair: WebCryptoSigner): Promise<void> => {
 	try {
-		localStorage.setItem(PRIVATE_KEY_STORAGE_KEY, secretKey);
-		console.debug('[savePrivateKeyToStorage] Secret key saved to storage successfully');
+		const exported = keypair.export();
+		await set(KEYPAIR_STORAGE_KEY, exported);
+		console.debug('[saveKeypairToStorage] Keypair exported and saved to IndexedDB successfully');
 	} catch (error) {
-		console.warn('[savePrivateKeyToStorage] Failed to save secret key to storage:', error);
+		console.warn('[saveKeypairToStorage] Failed to save keypair to IndexedDB:', error);
 	}
 };
 
-export const initializeKeypair = (): Ed25519Keypair => {
-	let secretKey = getPrivateKeyFromStorage();
+export const initializeKeypair = async (): Promise<WebCryptoSigner> => {
+	let exportedKeypair = await getKeypairFromStorage();
 	
-	if (!secretKey) {
-		secretKey = generatePrivateKey();
-		savePrivateKeyToStorage(secretKey);
-		console.debug('[initializeKeypair] Generated new secret key and saved to storage');
+	if (!exportedKeypair) {
+		const newKeypair = await generateKeypair();
+		await saveKeypairToStorage(newKeypair);
+		const address = newKeypair.getPublicKey().toSuiAddress();
+		console.debug('[initializeKeypair] Generated new WebCrypto keypair and saved to IndexedDB with address:', address);
+		return newKeypair;
 	} else {
-		console.debug('[initializeKeypair] Loaded existing secret key from storage');
+		console.debug('[initializeKeypair] Loaded existing keypair from IndexedDB');
 	}
 	
 	try {
-		const keypair = Ed25519Keypair.fromSecretKey(secretKey);
+		const keypair = await WebCryptoSigner.import(exportedKeypair);
 		const address = keypair.getPublicKey().toSuiAddress();
-		console.debug('[initializeKeypair] Created keypair with address:', address);
+		console.debug('[initializeKeypair] Imported keypair with address:', address);
 		return keypair;
 	} catch (error) {
-		console.warn('[initializeKeypair] Failed to create keypair from stored secret key, generating new one:', error);
-		// If the stored secret key is invalid, generate a new one
-		secretKey = generatePrivateKey();
-		savePrivateKeyToStorage(secretKey);
-		const keypair = Ed25519Keypair.fromSecretKey(secretKey);
-		const address = keypair.getPublicKey().toSuiAddress();
-		console.debug('[initializeKeypair] Generated new keypair with address:', address);
-		return keypair;
+		console.warn('[initializeKeypair] Failed to import keypair from storage, generating new one:', error);
+		// If the stored keypair is invalid, generate a new one
+		const newKeypair = await generateKeypair();
+		await saveKeypairToStorage(newKeypair);
+		const address = newKeypair.getPublicKey().toSuiAddress();
+		console.debug('[initializeKeypair] Generated new WebCrypto keypair with address:', address);
+		return newKeypair;
 	}
 };

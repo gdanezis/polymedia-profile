@@ -9,7 +9,7 @@ import {
 } from "@mysten/dapp-kit";
 import "@mysten/dapp-kit/dist/index.css";
 import { getFullnodeUrl } from "@mysten/sui/client";
-import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { WebCryptoSigner } from "@mysten/signers/webcrypto";
 import { type PolymediaProfile, ProfileClient } from "@polymedia/profile-sdk";
 import { loadNetwork, type Setter } from "@polymedia/suitcase-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -85,7 +85,7 @@ export type AppContextType = {
 	profile: PolymediaProfile | null | undefined;
 	profileClient: ProfileClient;
 	walrusClient: WalrusClient;
-	keypair: Ed25519Keypair;
+	keypair: WebCryptoSigner;
 	reloadProfile: () => Promise<void>;
 	openConnectModal: () => void;
 };
@@ -96,12 +96,20 @@ const App: React.FC<{
 }> = ({ network, setNetwork }) => {
 	const [profile, setProfile] = useState<PolymediaProfile | null | undefined>(undefined);
 	const [showConnectModal, setShowConnectModal] = useState(false);
+	const [keypair, setKeypair] = useState<WebCryptoSigner | null>(null);
 
-	// Initialize keypair from mnemonic stored in localStorage
-	const keypair = useMemo(() => {
-		const kp = initializeKeypair();
-		console.log("Local keypair address:", kp.getPublicKey().toSuiAddress());
-		return kp;
+	// Initialize keypair from IndexedDB storage
+	useEffect(() => {
+		const initKp = async () => {
+			try {
+				const kp = await initializeKeypair();
+				console.log("Local keypair address:", kp.getPublicKey().toSuiAddress());
+				setKeypair(kp);
+			} catch (error) {
+				console.error("Failed to initialize keypair:", error);
+			}
+		};
+		initKp();
 	}, []);
 
 	const suiClient = useSuiClient();
@@ -163,10 +171,26 @@ const App: React.FC<{
 		profile,
 		profileClient,
 		walrusClient,
-		keypair,
+		keypair: keypair!, // We know it's not null at this point
 		reloadProfile,
 		openConnectModal,
 	};
+
+	// Show loading state while keypair is being initialized
+	if (!keypair) {
+		return (
+			<div style={{ 
+				display: 'flex', 
+				justifyContent: 'center', 
+				alignItems: 'center', 
+				height: '100vh',
+				fontSize: '18px',
+				color: '#6c757d'
+			}}>
+				Initializing secure keypair...
+			</div>
+		);
+	}
 
 	return (
 		<AppContext.Provider value={appContext}>
