@@ -46,20 +46,14 @@ export default function FileUpload({
 	const {
 		state,
 		encodeFile,
-		registerBlob,
-		writeToUploadRelay,
-		certifyBlob,
 		reset: resetUpload,
 	} = useWalrusUpload();
 
 	// Derive convenient flags from the state
 	const uploadStatus = state.status;
 	const isEncoding = uploadStatus === "encoding";
-	const canRegister = uploadStatus === "can-register";
 	const isRegistering = uploadStatus === "registering";
-	const canRelay = uploadStatus === "can-relay";
 	const isRelaying = uploadStatus === "relaying";
-	const canCertify = uploadStatus === "can-certify";
 	const isCertifying = uploadStatus === "certifying";
 	const uploadError = uploadStatus === "error" ? state.message : null;
 
@@ -102,30 +96,6 @@ export default function FileUpload({
 		} finally {
 			document.body.classList.remove("cursor-wait");
 		}
-	};
-
-	const handleRegisterBlob = async () => {
-		await registerBlob({
-			epochs,
-			deletable: DELETABLE,
-		});
-	};
-
-	const handleWriteToUploadRelay = async () => {
-		await writeToUploadRelay();
-	};
-
-	const handleCertifyBlob = async () => {
-		const result = await certifyBlob();
-
-		// Transform the result to match the expected UploadResult interface
-		onUploadComplete({
-			patchId: result[0].id,
-			blobId: result[0].blobId,
-			suiObjectId: result[0].blobObject.id.id,
-			endEpoch: result[0].blobObject.storage.end_epoch,
-		});
-		resetUploadProcess();
 	};
 
 	const handleFundAndDoAll = async () => {
@@ -410,14 +380,6 @@ export default function FileUpload({
 	const displayError = error || uploadError;
 	const disableFileAndDuration =
 		isRegistering || isRelaying || isCertifying || isEncoding;
-	const registerDisabled =
-		!canRegister || isRegistering || !file || !currentAccount || isEncoding;
-	const relayDisabled = !canRelay || isRelaying;
-	const certifyDisabled = !canCertify || isCertifying;
-	const hasRegistered = ["can-relay", "relaying", "can-certify", "certifying"].includes(
-		uploadStatus,
-	);
-	const hasRelayed = ["can-certify", "certifying"].includes(uploadStatus);
 
 	// Debug the button state
 	const fundButtonDisabled = !file || isEncoding || !currentAccount || isFundingAndDoingAll;
@@ -495,7 +457,7 @@ export default function FileUpload({
 
 			{/* Upload Buttons */}
 			<div className="btn-group">
-				<h3>Upload Steps</h3>
+				<h3>Upload</h3>
 
 				{/* Fund and Do All Button */}
 				<button
@@ -509,61 +471,7 @@ export default function FileUpload({
 							<span>{fundAndDoAllStep}</span>
 						</div>
 					) : (
-						<span>💰 Fund and do all!</span>
-					)}
-				</button>
-
-				{/* Step 1: Register Blob */}
-				<button
-					className={registerDisabled || hasRegistered ? "disabled" : ""}
-					onClick={handleRegisterBlob}
-					disabled={registerDisabled}
-				>
-					{isRegistering ? (
-						<div className="button-loading">
-							<Spinner />
-							<span>Registering...</span>
-						</div>
-					) : hasRegistered ? (
-						<span>✓ 1. Register Blob</span>
-					) : !currentAccount ? (
-						<span>1. Connect Wallet First</span>
-					) : (
-						<span>1. Register Blob</span>
-					)}
-				</button>
-
-				{/* Step 2: Write to Upload Relay */}
-				<button
-					className={relayDisabled || hasRelayed ? "disabled" : ""}
-					onClick={handleWriteToUploadRelay}
-					disabled={relayDisabled}
-				>
-					{isRelaying ? (
-						<div className="button-loading">
-							<Spinner />
-							<span>Uploading to Walrus...</span>
-						</div>
-					) : hasRelayed ? (
-						<span>✓ 2. Uploaded to Walrus</span>
-					) : (
-						<span>2. Upload to Walrus</span>
-					)}
-				</button>
-
-				{/* Step 3: Certify Blob */}
-				<button
-					className={certifyDisabled ? "disabled" : ""}
-					onClick={handleCertifyBlob}
-					disabled={certifyDisabled}
-				>
-					{isCertifying ? (
-						<div className="button-loading">
-							<Spinner />
-							<span>Certifying...</span>
-						</div>
-					) : (
-						<span>3. Certify Upload</span>
+						<span>Upload</span>
 					)}
 				</button>
 			</div>

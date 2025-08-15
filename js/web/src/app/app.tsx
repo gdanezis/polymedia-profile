@@ -99,7 +99,9 @@ const App: React.FC<{
 
 	// Initialize keypair from mnemonic stored in localStorage
 	const keypair = useMemo(() => {
-		return initializeKeypair();
+		const kp = initializeKeypair();
+		console.log("Local keypair address:", kp.getPublicKey().toSuiAddress());
+		return kp;
 	}, []);
 
 	const suiClient = useSuiClient();
@@ -173,18 +175,6 @@ const App: React.FC<{
 				<Nav />
 				<Outlet /> {/* loads a page/*.tsx */}
 				<div id="filler-section"></div>
-				<div style={{
-					backgroundColor: '#f8f9fa',
-					padding: '12px 16px',
-					borderTop: '1px solid #dee2e6',
-					fontSize: '12px',
-					fontFamily: 'monospace',
-					color: '#6c757d',
-					textAlign: 'center',
-					marginTop: 'auto'
-				}}>
-					<strong>Keypair Address:</strong> {keypair.getPublicKey().toSuiAddress()}
-				</div>
 				<Toaster
 					position="bottom-right"
 					toastOptions={{
